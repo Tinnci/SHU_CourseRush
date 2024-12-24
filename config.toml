@@ -1,4 +1,5 @@
 use_multithreading = false      # 将其更改为 true 来启用多线程
+allow_over_capacity = false      # 是否允许超过容量选课（人数已满也要选,用于第一轮选课未踢人情况）
 wait_time = 5.0                 # 每次尝试后的等待时间（秒）
 username = "your_username_here"
 password = "your_password_here"
