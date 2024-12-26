@@ -18,6 +18,10 @@ from webdriver_manager.firefox import GeckoDriverManager
 from webdriver_manager.microsoft import EdgeChromiumDriverManager
 import platform
 import os
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from selenium.webdriver.edge.service import Service as EdgeService
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # 日志配置
 logging.basicConfig(
@@ -42,16 +46,22 @@ config = {
 
 token = None  # 全局 token 变量
 
+# 定义 user_agents 列表
+user_agents = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:54.0) Gecko/20100101 Firefox/54.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36",
+]
+
 
 def query_and_add_course(course):
     global token
-    get_token_safe()
-    headers = {"Authorization": token, "User-Agent": random.choice(["Mozilla/5.0"])}
+    headers = {"Authorization": token}
+    headers["User-Agent"] = random.choice(user_agents)  # 这里可能有问题
     list_url = "https://jwxk.shu.edu.cn/xsxk/elective/shu/clazz/list"
     add_url = "https://jwxk.shu.edu.cn/xsxk/elective/shu/clazz/add"
-
-    if not check_and_resolve_conflicts(course):
-        return False
 
     try:
         response = requests.post(
@@ -63,26 +73,47 @@ def query_and_add_course(course):
                 "teachingClassType": "XGKC",
             },
         )
-        response.raise_for_status()
-        rows = response.json().get("data", {}).get("list", {}).get("rows", [])
-        for row in rows:
-            if "JXBID" not in row or "secretVal" not in row:
-                log.error(f"关键字段缺失: {row}")
-                continue
-            if row["numberOfSelected"] < row["classCapacity"] or config.get(
-                "allow_over_capacity", False
-            ):
-                add_response = requests.post(
-                    add_url,
-                    headers=headers,
-                    data={"clazzId": row["JXBID"], "secretVal": row["secretVal"]},
-                )
-                if add_response.status_code == 200:
-                    config["selected_courses"][course["KCH"]] = course["JSH"]
-                    log.info(f"课程 {course['KCH']} 添加成功!")
-                    return True
-    except Exception as e:
-        log.error(f"查询或添加课程失败: {e}")
+        response.raise_for_status()  # 添加状态码检查
+        
+        # 添加响应内容调试
+        if response.status_code != 200:
+            log.error(f"请求失败，状态码: {response.status_code}")
+            log.error(f"响应内容: {response.text[:200]}")  # 只打印前200个字符
+            return False
+            
+        try:
+            rows = response.json().get("data", {}).get("list", {}).get("rows", [])
+            
+            for row in rows:
+                if row["numberOfSelected"] < row["classCapacity"] or config.get(
+                    "allow_over_capacity", False
+                ):
+                    add_response = requests.post(
+                        add_url,
+                        headers=headers,
+                        data={"clazzId": row["JXBID"], "secretVal": row["secretVal"]},
+                    )
+                    if add_response.status_code == 200:
+                        config["selected_courses"][course["KCH"]] = course["JSH"]
+                        log.info(f"课程 {course['KCH']} 添加成功!")
+                        return True
+                    else:
+                        log.warning(f"课程 {course['KCH']} 添加失败，状态码: {add_response.status_code}")
+                        if add_response.status_code == 401:
+                            log.warning("Token 失效，正在更新 Token...")
+                            get_token()
+                else:
+                    log.info(f"课程 {course['KCH']} 已满，继续尝试...")
+                    
+        except json.JSONDecodeError as e:
+            log.error(f"JSON 解析失败: {e}")
+            log.error(f"响应内容: {response.text[:200]}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        log.error(f"请求失败: {e}")
+        return False
+        
     return False
 
 
@@ -143,90 +174,77 @@ def get_token():
     driver = None
     try:
         browser_type = config.get("browser").lower()
-        options = get_browser_options(browser_type)
-        driver_path = config.get("driver_path")
         
-        if not driver_path:
-            log.error("未找到浏览器驱动路径")
+        # 使用原版本的简单直接的浏览器配置
+        if browser_type == "chrome":
+            options = ChromeOptions()
+            options.add_argument('--disable-gpu')
+            options.add_argument('--disable-extensions')
+            service = ChromeService()
+            driver = webdriver.Chrome(service=service, options=options)
+        elif browser_type == "firefox":
+            options = FirefoxOptions()
+            service = FirefoxService()
+            driver = webdriver.Firefox(service=service, options=options)
+        elif browser_type == "edge":
+            options = EdgeOptions()
+            service = EdgeService()
+            driver = webdriver.Edge(service=service, options=options)
+        else:
+            log.error(f"未识别的浏览器类型: {browser_type}")
             return False
             
-        # 创建浏览器实例
-        driver_cls = getattr(webdriver, browser_type.capitalize())
-        driver = driver_cls(options=options)
-        
-        # 设置页面加载超时
-        driver.set_page_load_timeout(30)
-        driver.set_script_timeout(30)
-        
         log.info("正在访问登录页面...")
-        max_retries = 3
-        retry_count = 0
+        driver.get("https://jwxk.shu.edu.cn/")
         
-        while retry_count < max_retries:
-            try:
-                driver.get("https://jwxk.shu.edu.cn/")
-                break
-            except Exception as e:
-                retry_count += 1
-                if retry_count < max_retries:
-                    log.warning(f"页面加载失败，正在重试 ({retry_count}/{max_retries})")
-                    time.sleep(2)
-                else:
-                    log.error(f"页面加载失败: {e}")
-                    return False
+        # 使用原版本的登录流程
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "username"))
+        )
+        driver.find_element(By.ID, "username").send_keys(config.get("username"))
+        driver.find_element(By.ID, "password").send_keys(config.get("password"))
         
+        submit_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "submit-button"))
+        )
+        time.sleep(1)
+        submit_button.click()
+        time.sleep(2)
+        
+        log.info("登录成功，等待选择学期冷却...")
+        time.sleep(10)
+        
+        # 保留新版本的学期选择处理
         try:
-            # 等待并填写登录表单
-            username_element = WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.ID, "username"))
+            confirm_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, "//button[contains(@class, 'el-button--primary') and .//span[text()='确 定']]")
+                )
             )
-            username_element.clear()
-            username_element.send_keys(config.get("username"))
+            confirm_button.click()
+            log.info("点击确定按钮成功")
+        except (TimeoutException, NoSuchElementException) as e:
+            log.warning(f"未找到确认按钮: {e}")
             
-            password_element = driver.find_element(By.ID, "password")
-            password_element.clear()
-            password_element.send_keys(config.get("password"))
-            
-            # 点击登录按钮
-            submit_button = driver.find_element(By.ID, "submit-button")
-            submit_button.click()
-            
-            # 等待登录完成并检查重定向
-            WebDriverWait(driver, 10).until(
-                lambda d: "jwxk.shu.edu.cn/xsxk" in d.current_url
-            )
-            
-            # 获取 cookies
-            cookies = driver.get_cookies()
-            auth_cookie = next(
-                (cookie for cookie in cookies if cookie["name"] == "Authorization"), 
-                None
-            )
-            
-            if auth_cookie:
-                token = auth_cookie["value"]
-                log.info("成功获取新的 token")
-                return True
-            else:
-                # 尝试从 localStorage 获取 token
-                try:
-                    local_storage = driver.execute_script("return window.localStorage;")
-                    if "token" in local_storage:
-                        token = local_storage["token"]
-                        log.info("从 localStorage 获取到 token")
-                        return True
-                except Exception as e:
-                    log.warning(f"从 localStorage 获取 token 失败: {e}")
+        # 使用原版本的 token 获取逻辑
+        cookies = driver.get_cookies()
+        for cookie in cookies:
+            if cookie["name"] == "Authorization":
+                token = cookie["value"]
+                break
                 
-                log.error("未找到认证信息")
-                return False
-                
-        except Exception as e:
-            log.error(f"登录过程中出错: {e}")
+        # 使用原版本的 token 验证方式
+        if token:
+            log.info(f"获取到的 Token: {token}")
+            return True
+        else:
+            log.error("未找到 Authorization cookie")
             return False
             
     except Exception as e:
         log.error(f"获取 token 出错: {e}")
+        if driver:
+            log.error(f"当前页面 URL: {driver.current_url}")
         return False
     finally:
         if driver:
@@ -250,7 +268,7 @@ def sync_local_state():
         save_local_state_to_file()
         log.info("本地课程状态同步完成")
     except requests.exceptions.RequestException as e:
-        log.error(f"同步本地状态失败: {e}")
+        log.error(f"同步本地状���失败: {e}")
 
 
 # 时间段冲突检查
@@ -330,70 +348,38 @@ def query_and_add_course(course):
 
 # 主流程
 def main():
-    # 添加配置版本检查
-    if not verify_config_version():
-        log.warning("配置版本检查失败，继续执行可能存在风险")
-        
-    # TODO: Add configuration version check
+    # 配置加载
     if not load_config():
         log.error("程序因配置问题无法继续运行")
         return
-
-    # Verify browser driver availability
-    if not verify_browser_setup():
-        log.error("浏览器驱动程序未正确安装或配置")
-        return
-
-    # Initial authentication
-    get_token_safe()
-    if not token:
-        log.error("无法获取登录凭证，请检查用户名密码是否正确")
-        return
-
-    # TODO: Add proper session management
-    if not verify_session():
-        log.error("会话验证失败")
-        return
-
-    # Sync local state
-    if not sync_local_state():
-        log.error("同步本地状态失败，请检查网络连接和登录状态")
-        return
-
-    # TODO: Add proper rate limiting
-    attempt = 0
-    while True:
-        rate_limiter.wait()  # 添加限流控制
-        attempt += 1
-        log.info(f"第 {attempt} 次尝试...")
-
-        # Verify system status before proceeding
-        if not verify_system_status():
-            log.error("选课系统当前不可用，等待重试...")
-            time.sleep(30)
-            continue
-
-        courses_to_query = sorted(
-            config.get("courses", []), 
-            key=lambda x: x.get("priority", float("inf"))
-        )
-
-        if not courses_to_query:
-            log.error("没有需要选择的课程，请在配置文件中添加课程信息")
-            return
-
-        # TODO: Implement proper course status verification
-        success = any(query_and_add_course(course) for course in courses_to_query)
         
-        if success:
-            if verify_selection_result():
+    # 验证浏览器设置（但不要因为验证失败就退出）
+    verify_browser_setup()
+    
+    # 直接尝试获取 token（与原版保持一致）
+    get_token()
+    
+    # 获取 token 后添加验证
+    if get_token() and verify_session():
+        attempt = 0
+        while True:
+            attempt += 1
+            log.info(f"第 {attempt} 次尝试...")
+
+            success = (
+                query_courses_multithread()
+                if config.get("use_multithreading", False)
+                else query_courses_singlethread()
+            )
+
+            if success:
                 log.info(f"抢课成功! 第 {attempt} 次尝试")
                 break
-            else:
-                log.warning("课程选择可能未成功，将继续尝试")
 
-        wait_time = max(0, config.get("wait_time", 5.0) + random.uniform(-0.2, 0.2))
-        time.sleep(wait_time)
+            wait_time = max(0, config.get("wait_time", 5.0) + random.uniform(-0.2, 0.2))
+            time.sleep(wait_time)
+    else:
+        log.error("获取 token 或验证会话失败")
 
 def verify_browser_setup():
     """验证浏览器驱动是否正确安装"""
@@ -418,25 +404,18 @@ def verify_browser_setup():
         }
         
         # 尝试获取驱动路径
-        try:
-            driver_path = driver_manager_map[browser]().install()
-            log.info(f"驱动路径: {driver_path}")
-            
-            # 尝试创建浏览器实例来验证
-            options = get_browser_options(browser)
-            driver_cls = getattr(webdriver, browser.capitalize())
-            driver = driver_cls(options=options)
-            driver.quit()
-            
-            # 保存驱动路径到配置
-            config["driver_path"] = driver_path
-            log.info(f"{browser.capitalize()} 浏览器驱动验证成功")
-            return True
-            
-        except Exception as e:
-            log.error(f"驱动验证失败: {e}")
-            return False
-            
+        driver_path = driver_manager_map[browser]().install()
+        log.info(f"驱动路径: {driver_path}")
+        
+        # 验证驱动可用性
+        options = get_browser_options(browser)
+        driver_cls = getattr(webdriver, browser.capitalize())
+        driver = driver_cls(options=options)
+        driver.quit()
+        
+        log.info(f"{browser.capitalize()} 浏览器驱动验证成功")
+        return True
+        
     except Exception as e:
         log.error(f"浏览器驱动验证失败: {str(e)}")
         return False
@@ -451,30 +430,9 @@ def get_browser_options(browser_type):
     
     options = options_map[browser_type]()
     
-    # 通用配置
-    options.add_argument("--headless=new")
+    # 使用原版本的简单配置
     options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    
-    # 添加 SSL 相关配置
-    options.add_argument("--ignore-certificate-errors")
-    options.add_argument("--ignore-ssl-errors")
-    options.add_argument("--allow-insecure-localhost")
-    
-    # 浏览器特定配置
-    if browser_type == "chrome":
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-    elif browser_type == "firefox":
-        options.set_preference("dom.webdriver.enabled", False)
-        options.set_preference("useAutomationExtension", False)
-        options.set_preference("network.stricttransportsecurity.preloadlist", False)
-        options.set_preference("security.cert_pinning.enforcement_level", 0)
-    elif browser_type == "edge":
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
+    options.add_argument("--disable-extensions")
     
     return options
 
@@ -660,6 +618,23 @@ class RateLimiter:
 
 # 在 main 函数中添加限流器
 rate_limiter = RateLimiter()
+
+def query_courses_singlethread():
+    """单线程查询课程"""
+    for course in config.get("courses", []):
+        if query_and_add_course(course):
+            return True
+    return False
+
+def query_courses_multithread():
+    """多线程查询课程"""
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(query_and_add_course, course) 
+                  for course in config.get("courses", [])]
+        for future in as_completed(futures):
+            if future.result():
+                return True
+    return False
 
 if __name__ == "__main__":
     main()
