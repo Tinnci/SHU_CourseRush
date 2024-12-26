@@ -1,0 +1,20 @@
+# 基本配置
+use_multithreading = false      # 是否启用多线程
+allow_over_capacity = false     # 是否允许超过容量选课（用于第一轮选课未踢人情况）
+wait_time = 5.0                 # 每次尝试后的等待时间（秒）
+username = ""                   # 你的学号
+password = ""                   # 你的密码
+browser = "chrome"              # 浏览器类型: "chrome", "firefox", 或 "edge"
+
+# 课程信息列表
+[[courses]]
+KCH = ""                       # 课程号
+JSH = ""                       # 教师号
+priority = 1                   # 优先级，值越低越优先
+# class_type = "XGKC"         # 可选：课程类型，默认为 "XGKC"
+
+# 可以添加多个课程
+# [[courses]]
+# KCH = ""
+# JSH = ""
+# priority = 2 

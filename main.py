@@ -17,10 +17,83 @@ from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.edge.options import Options as EdgeOptions
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from threading import Lock
+import logging.config
+import os
+import sys
+import shutil
+import signal
 
-def load_config(file_path):
-    with open(file_path, 'r', encoding='utf-8') as file:
-        return toml.load(file)
+def setup_logging():
+    """配置日志"""
+    logging_config = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'formatters': {
+            'standard': {
+                'format': '%(asctime)s - %(levelname)s - %(message)s'
+            },
+        },
+        'handlers': {
+            'file': {
+                'level': 'DEBUG',
+                'class': 'logging.FileHandler',
+                'filename': 'app.log',
+                'formatter': 'standard',
+                'encoding': 'utf-8',
+            },
+            'console': {
+                'level': 'INFO',
+                'class': 'logging.StreamHandler',
+                'formatter': 'standard',
+            },
+        },
+        'loggers': {
+            '': {  # root logger
+                'handlers': ['console', 'file'],
+                'level': 'DEBUG',
+                'propagate': True
+            }
+        }
+    }
+    logging.config.dictConfig(logging_config)
+
+def validate_config(config):
+    """验证配置文件"""
+    required_fields = ['username', 'password', 'browser']
+    for field in required_fields:
+        if not config.get(field):
+            raise ValueError(f"配置错误: {field} 不能为空")
+    
+    if not config.get("courses"):
+        raise ValueError("配置错误: 未设置任何课程")
+    
+    for course in config.get("courses", []):
+        if not course.get("KCH"):
+            raise ValueError("配置错误: 课程号(KCH)不能为空")
+        if not course.get("JSH"):
+            raise ValueError("配置错误: 教师号(JSH)不能为空")
+
+def load_config(file_path="config.toml"):
+    """加载并验证配置"""
+    try:
+        if not os.path.exists(file_path):
+            template_path = "config.template.toml"
+            if os.path.exists(template_path):
+                shutil.copy(template_path, file_path)
+                log.info(f"已创建配置文件模板: {file_path}")
+                log.info("请编辑配置文件并重新运行程序")
+                sys.exit(0)
+            else:
+                raise FileNotFoundError(f"配置文件不存在: {file_path}")
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            config = toml.load(f)
+            
+        validate_config(config)
+        return config
+    except Exception as e:
+        log.error(f"加载配置文件失败: {e}")
+        sys.exit(1)
 
 config = load_config("config.toml")
 courses = config.get("courses", [])
@@ -376,8 +449,20 @@ def query_courses_singlethread():
             return True
     return False
 
+def signal_handler(signum, frame):
+    """处理退出信号"""
+    log.info("接收到退出信号，正在清理...")
+    # 在这里添加清理代码
+    sys.exit(0)
+
 def main():
     """主函数"""
+    # 注册信号处理器
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    setup_logging()
+    log.info("程序启动")
     if not token_manager.get_token():
         log.error("无法获取有效token")
         return
