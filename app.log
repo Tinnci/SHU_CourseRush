@@ -1,0 +1,13 @@
+2024-12-26 20:35:46,691 - INFO - Token 无效，正在重新获取...
+2024-12-26 20:41:01,422 - WARNING - 配置文件版本 (0.0.0) 低于当前支持的版本 (1.0.0)
+2024-12-26 20:41:01,423 - WARNING - 建议更新配置文件以使用新功能
+2024-12-26 20:41:01,424 - INFO - 当前系统: Windows
+2024-12-26 20:41:01,425 - INFO - ====== WebDriver manager ======
+2024-12-26 20:41:06,880 - INFO - Get LATEST edgedriver version for Edge 132.0.2957
+2024-12-26 20:41:07,775 - INFO - Get LATEST edgedriver version for Edge 132.0.2957
+2024-12-26 20:41:08,641 - INFO - Driver [C:\Users\luoyi\.wdm\drivers\edgedriver\win64\132.0.2957.55\msedgedriver.exe] found in cache
+2024-12-26 20:41:08,642 - INFO - 驱动路径: C:\Users\luoyi\.wdm\drivers\edgedriver\win64\132.0.2957.55\msedgedriver.exe
+2024-12-26 20:41:15,109 - INFO - Edge 浏览器驱动验证成功
+2024-12-26 20:41:15,110 - INFO - Token 无效，正在重新获取...
+2024-12-26 20:41:17,622 - INFO - 正在访问登录页面...
+2024-12-26 20:41:21,438 - ERROR - 登录成功但未找到 Authorization cookie
