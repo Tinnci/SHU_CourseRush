@@ -1,8 +1,8 @@
 use_multithreading = false      # 是否启用多线程
 allow_over_capacity = false     # 是否允许超过容量选课（用于第一轮选课未踢人情况）
 wait_time = 5.0                 # 每次尝试后的等待时间（秒）
-username = "your_username_here"
-password = "your_password_here"
+username = "22122212"
+password = "12340000"
 browser = "edge"                # 浏览器类型: "chrome", "firefox", 或 "edge"
 
 # 已选课程本地状态（动态更新）
