@@ -1,0 +1,15 @@
+[project]
+name = "shu-courserush"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "mock>=5.1.0",
+    "pytest>=8.3.4",
+    "pytest-cov>=6.0.0",
+    "pytest-mock>=3.14.0",
+    "requests>=2.32.3",
+    "selenium>=4.27.1",
+    "toml>=0.10.2",
+]
